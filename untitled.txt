@@ -66,6 +66,12 @@ local headLoop = nil
 local AutoManualSpamEnabled = false
 local ManualSpamActive = false
 local recentTargetChanges = {} -- New variable for tracking ball target changes
+local FlySpeed = 50 -- New variable for fly speed
+local BallMagnetStrength = 50 -- New variable for ball magnet strength
+local HitboxSize = 10 -- New variable for hitbox size
+local FogDistance = 1000 -- New variable for fog distance
+local JumpPower = 50 -- New variable for jump power
+local Brightness = 1 -- New variable for brightness
 
 -- Remote detection
 task.spawn(function()
@@ -108,8 +114,6 @@ local function performFirstPress(parryType)
         updateNavigation(button)
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-        task.wait(0.01)
-        updateNavigation(nil)
     end
 end
 
@@ -587,7 +591,7 @@ local function getSlash(name)
     local s = swords:GetSword(name)
     return (s and s.SlashName) or "SlashEffect"
 end
-getgenv().config.slash = getSlash(getgenv().config.model)
+getgenv().config.slash = getSlash(getgenv().config.fx)
 local function setSword()
     if not getgenv().config.enabled then return end
     setupvalue(rawget(swords, "EquipSwordTo"), 2, false)
@@ -654,12 +658,13 @@ task.spawn(function()
         end
     end
 end)
+print("Velocity Skin changer")
 
 -- New UI with Allusive-UI
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/MarchHubOnTopFr/Allusive-UI/refs/heads/main/Source.lua"))()
 local main = Library.new()
 
--- Tabs
+-- New Tabs
 local blatant_tab = main:create_tab("Blatant", "rbxassetid://76499042599127")
 local player_tab = main:create_tab("Player", "rbxassetid://126017907477623")
 local combat_tab = main:create_tab("Combat", "rbxassetid://76499042599127")
@@ -851,16 +856,21 @@ auto_parry_module:create_checkbox({
     end
 })
 
-auto_parry_module:create_button({
-    title = "Reset Parry Count",
-    callback = function()
-        Parries = 0
+auto_parry_module:create_slider({
+    title = "Parry Cooldown",
+    flag = "Parry_Cooldown",
+    maximum_value = 0.1,
+    minimum_value = 0.01,
+    value = 0.02,
+    round_number = false,
+    callback = function(value)
+        Cooldown = value
     end
 })
 
 auto_parry_module:create_dropdown({
-    title = "First Parry Type",
-    flag = "First_Parry_Type",
+    title = "Input Type",
+    flag = "Input_Type",
     options = {"F_Key", "Left_Click", "Navigation"},
     multi_dropdown = false,
     maximum_options = 1,
@@ -944,26 +954,6 @@ auto_spam_parry_module:create_slider({
     end
 })
 
-auto_spam_parry_module:create_checkbox({
-    title = "Spam Keypress",
-    flag = "Spam_Keypress",
-    callback = function(value)
-        getgenv().SpamParryKeypress = value
-    end
-})
-
-auto_spam_parry_module:create_slider({
-    title = "Spam Cooldown",
-    flag = "Spam_Cooldown",
-    maximum_value = 1,
-    minimum_value = 0.01,
-    value = 0.02,
-    round_number = false,
-    callback = function(value)
-        Cooldown = value
-    end
-})
-
 if not isMobile then
     auto_spam_parry_module:create_checkbox({
         title = "Animation Fix",
@@ -993,60 +983,25 @@ if not isMobile then
                     local Direction = (LocalPlayer.Character.PrimaryPart.Position - Ball.Position).Unit
                     local Ball_Direction = Zoomies.VectorVelocity.Unit
                     local Dot = Direction:Dot(Ball_Direction)
-                    local Distance = LocalPlayer:DistanceFromCharacter sy
-                    if not isMobile then
-                        auto_spam_parry_module:create_checkbox({
-                            title = "Animation Fix",
-                            flag = "Animation_Fix",
-                            callback = function(value)
-                                if value then
-                                    Connections_Manager['Animation Fix'] = RunService.PreSimulation:Connect(function()
-                                        local Ball = Auto_Parry.Get_Ball()
-                                        if not Ball then return end
-                                        local Zoomies = Ball:FindFirstChild('zoomies')
-                                        if not Zoomies then return end
-                                        Auto_Parry.Closest_Player()
-                                        local Ping = Stats.Network.ServerStatsItem['Data Ping']:GetValue()
-                                        local Ping_Threshold = math.clamp(Ping / 10, 10, 16)
-                                        local Ball_Target = Ball:GetAttribute('target')
-                                        local Ball_Properties = Auto_Parry:Get_Ball_Properties()
-                                        local Entity_Properties = Auto_Parry:Get_Entity_Properties()
-                                        local Spam_Accuracy = Auto_Parry.Spam_Service({
-                                            Ball_Properties = Ball_Properties,
-                                            Entity_Properties = Entity_Properties,
-                                            Ping = Ping_Threshold
-                                        })
-                                        local recentChanges = getRecentTargetChanges()
-                                        local adjustedSpamAccuracy = Spam_Accuracy + (recentChanges * 5)
-                                        local Target_Position = Closest_Entity and Closest_Entity.PrimaryPart.Position
-                                        local Target_Distance = Target_Position and LocalPlayer:DistanceFromCharacter(Target_Position) or math.huge
-                                        local Direction = (LocalPlayer.Character.PrimaryPart.Position - Ball.Position).Unit
-                                        local Ball_Direction = Zoomies.VectorVelocity.Unit
-                                        local Dot = Direction:Dot(Ball_Direction)
-                                        local Distance = LocalPlayer:DistanceFromCharacter(Ball.Position)
-                                        if not Ball_Target then return end
-                                        if Target_Distance > adjustedSpamAccuracy or Distance > adjustedSpamAccuracy then return end
-                                        local Pulsed = LocalPlayer.Character:GetAttribute('Pulsed')
-                                        if Pulsed then return end
-                                        if Ball_Target == tostring(LocalPlayer) and Target_Distance > 30 and Distance > 30 then return end
-                                        local threshold = ParryThreshold
-                                        if Distance <= adjustedSpamAccuracy and (Parries > threshold or recentChanges >= 3) then
-                                            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-                                        end
-                                    end)
-                                else
-                                    if Connections_Manager['Animation Fix'] then
-                                        Connections_Manager['Animation Fix']:Disconnect()
-                                        Connections_Manager['Animation Fix'] = nil
-                                    end
-                                end
-                            end
-                        })
+                    local Distance = LocalPlayer:DistanceFromCharacter(Ball.Position)
+                    if not Ball_Target then return end
+                    if Target_Distance > adjustedSpamAccuracy or Distance > adjustedSpamAccuracy then return end
+                    local Pulsed = LocalPlayer.Character:GetAttribute('Pulsed')
+                    if Pulsed then return end
+                    if Ball_Target == tostring(LocalPlayer) and Target_Distance > 30 and Distance > 30 then return end
+                    local threshold = ParryThreshold
+                    if Distance <= adjustedSpamAccuracy and (Parries > threshold or recentChanges >= 3) then
+                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
                     end
+                end)
+            else
+                if Connections_Manager['Animation Fix'] then
+                    Connections_Manager['Animation Fix']:Disconnect()
+                    Connections_Manager['Animation Fix'] = nil
                 end
-            })
+            end
         end
-    end
+    })
 end
 
 local manual_spam_module = blatant_tab:create_module({
@@ -1152,15 +1107,6 @@ manual_spam_module:create_checkbox({
     end
 })
 
-manual_spam_module:create_button({
-    title = "Toggle Manual Spam",
-    callback = function()
-        if not AutoManualSpamEnabled then
-            toggleManualSpam(not ManualSpamActive)
-        end
-    end
-})
-
 local lobby_ap_module = blatant_tab:create_module({
     title = "Lobby AP",
     flag = "Lobby_AP",
@@ -1233,14 +1179,6 @@ lobby_ap_module:create_checkbox({
     end
 })
 
-lobby_ap_module:create_checkbox({
-    title = "Lobby Keypress",
-    flag = "Lobby_Keypress",
-    callback = function(value)
-        getgenv().LobbyAPKeypress = value
-    end
-})
-
 -- Player Modules
 local speed_module = player_tab:create_module({
     title = "Speed",
@@ -1249,7 +1187,7 @@ local speed_module = player_tab:create_module({
     section = "left",
     callback = function(value)
         if value then
-            Connections_Manager['Strafe'] = RunService.PreSimulation:Connect(function()
+            Connections_Manager['Strafe'] = RunService.Heartbeat:Connect(function()
                 local character = LocalPlayer.Character
                 if character and character:FindFirstChild("Humanoid") then
                     character.Humanoid.WalkSpeed = StrafeSpeed
@@ -1280,6 +1218,24 @@ speed_module:create_slider({
     end
 })
 
+speed_module:create_checkbox({
+    title = "Auto Sprint",
+    flag = "Auto_Sprint",
+    callback = function(value)
+        if value then
+            Connections_Manager['Auto Sprint'] = RunService.Heartbeat:Connect(function()
+                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+            end)
+        else
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+            if Connections_Manager['Auto Sprint'] then
+                Connections_Manager['Auto Sprint']:Disconnect()
+                Connections_Manager['Auto Sprint'] = nil
+            end
+        end
+    end
+})
+
 speed_module:create_slider({
     title = "Jump Power",
     flag = "Jump_Power",
@@ -1288,27 +1244,10 @@ speed_module:create_slider({
     value = 50,
     round_number = true,
     callback = function(value)
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-            LocalPlayer.Character.Humanoid.JumpPower = value
-        end
-    end
-})
-
-speed_module:create_checkbox({
-    title = "Infinite Jump",
-    flag = "Infinite_Jump",
-    callback = function(value)
-        if value then
-            Connections_Manager['Infinite Jump'] = UserInputService.JumpRequest:Connect(function()
-                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-                    LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-                end
-            end)
-        else
-            if Connections_Manager['Infinite Jump'] then
-                Connections_Manager['Infinite Jump']:Disconnect()
-                Connections_Manager['Infinite Jump'] = nil
-            end
+        JumpPower = value
+        local character = LocalPlayer.Character
+        if character and character:FindFirstChild("Humanoid") then
+            character.Humanoid.JumpPower = value
         end
     end
 })
@@ -1361,17 +1300,6 @@ spinbot_module:create_slider({
     end
 })
 
-spinbot_module:create_dropdown({
-    title = "Spin Axis",
-    flag = "Spin_Axis",
-    options = {"Y", "X", "Z"},
-    multi_dropdown = false,
-    maximum_options = 1,
-    callback = function(value)
-        getgenv().spinAxis = value
-    end
-})
-
 local fov_module = player_tab:create_module({
     title = "Field of View",
     flag = "Field_Of_View",
@@ -1415,28 +1343,7 @@ fov_module:create_slider({
     end
 })
 
-fov_module:create_checkbox({
-    title = "Dynamic FOV",
-    flag = "Dynamic_FOV",
-    callback = function(value)
-        if value then
-            Connections_Manager['Dynamic FOV'] = RunService.RenderStepped:Connect(function()
-                local ball = Auto_Parry.Get_Ball()
-                if ball then
-                    local distance = (LocalPlayer.Character.PrimaryPart.Position - ball.Position).Magnitude
-                    getgenv().CameraFOV = math.clamp(70 + distance / 10, 50, 150)
-                end
-            end)
-        else
-            if Connections_Manager['Dynamic FOV'] then
-                Connections_Manager['Dynamic FOV']:Disconnect()
-                Connections_Manager['Dynamic FOV'] = nil
-            end
-        end
-    end
-})
-
--- Combat Tab
+-- Combat Modules
 local hitbox_expander_module = combat_tab:create_module({
     title = "Hitbox Expander",
     flag = "Hitbox_Expander",
@@ -1448,7 +1355,7 @@ local hitbox_expander_module = combat_tab:create_module({
                 for _, player in pairs(Players:GetPlayers()) do
                     if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                         local hrp = player.Character.HumanoidRootPart
-                        hrp.Size = Vector3.new(getgenv().HitboxSize or 10, getgenv().HitboxSize or 10, getgenv().HitboxSize or 10)
+                        hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
                         hrp.Transparency = 0.9
                     end
                 end
@@ -1477,24 +1384,31 @@ hitbox_expander_module:create_slider({
     value = 10,
     round_number = true,
     callback = function(value)
-        getgenv().HitboxSize = value
+        HitboxSize = value
     end
 })
 
 hitbox_expander_module:create_checkbox({
-    title = "Visible Hitboxes",
-    flag = "Visible_Hitboxes",
+    title = "Auto Aim",
+    flag = "Auto_Aim",
     callback = function(value)
-        getgenv().HitboxVisible = value
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                player.Character.HumanoidRootPart.Transparency = value and 0.5 or 0.9
+        if value then
+            Connections_Manager['Auto Aim'] = RunService.RenderStepped:Connect(function()
+                local closest = Auto_Parry.Closest_Player()
+                if closest and closest.PrimaryPart then
+                    Workspace.CurrentCamera.CFrame = CFrame.new(Workspace.CurrentCamera.CFrame.Position, closest.PrimaryPart.Position)
+                end
+            end)
+        else
+            if Connections_Manager['Auto Aim'] then
+                Connections_Manager['Auto Aim']:Disconnect()
+                Connections_Manager['Auto Aim'] = nil
             end
         end
     end
 })
 
--- Visuals Tab
+-- Visuals Modules
 local esp_module = visuals_tab:create_module({
     title = "ESP",
     flag = "ESP",
@@ -1507,8 +1421,8 @@ local esp_module = visuals_tab:create_module({
                     if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                         local highlight = player.Character:FindFirstChild("ESPHighlight") or Instance.new("Highlight")
                         highlight.Name = "ESPHighlight"
-                        highlight.FillColor = Color3.fromRGB(getgenv().ESPFillR or 255, getgenv().ESPFillG or 0, getgenv().ESPFillB or 0)
-                        highlight.OutlineColor = Color3.fromRGB(getgenv().ESPOutlineR or 255, getgenv().ESPOutlineG or 255, getgenv().ESPOutlineB or 0)
+                        highlight.FillColor = getgenv().ESPFillColor or Color3.new(1, 0, 0)
+                        highlight.OutlineColor = getgenv().ESPOutlineColor or Color3.new(1, 1, 0)
                         highlight.Parent = player.Character
                     end
                 end
@@ -1527,58 +1441,64 @@ local esp_module = visuals_tab:create_module({
     end
 })
 
-esp_module:create_slider({
-    title = "ESP Fill Red",
-    flag = "ESP_Fill_R",
-    maximum_value = 255,
-    minimum_value = 0,
-    value = 255,
-    round_number = true,
-    callback = function(value)
-        getgenv().ESPFillR = value
-    end
-})
-
-esp_module:create_slider({
-    title = "ESP Fill Green",
-    flag = "ESP_Fill_G",
-    maximum_value = 255,
-    minimum_value = 0,
-    value = 0,
-    round_number = true,
-    callback = function(value)
-        getgenv().ESPFillG = value
-    end
-})
-
-esp_module:create_slider({
-    title = "ESP Fill Blue",
-    flag = "ESP_Fill_B",
-    maximum_value = 255,
-    minimum_value = 0,
-    value = 0,
-    round_number = true,
-    callback = function(value)
-        getgenv().ESPFillB = value
-    end
-})
-
 esp_module:create_dropdown({
-    title = "ESP Style",
-    flag = "ESP_Style",
-    options = {"Solid", "Wireframe"},
+    title = "ESP Color",
+    flag = "ESP_Color",
+    options = {"Red", "Green", "Blue", "Yellow"},
     multi_dropdown = false,
     maximum_options = 1,
     callback = function(value)
-        for _, player in pairs(Players:GetPlayers()) do
-            if player.Character and player.Character:FindFirstChild("ESPHighlight") then
-                player.Character.ESPHighlight.FillTransparency = value == "Solid" and 0.5 or 1
+        local colorMap = {
+            Red = Color3.new(1, 0, 0),
+            Green = Color3.new(0, 1, 0),
+            Blue = Color3.new(0, 0, 1),
+            Yellow = Color3.new(1, 1, 0)
+        }
+        getgenv().ESPFillColor = colorMap[value]
+        getgenv().ESPOutlineColor = colorMap[value]
+    end
+})
+
+esp_module:create_checkbox({
+    title = "Name Tags",
+    flag = "Name_Tags",
+    callback = function(value)
+        if value then
+            Connections_Manager['Name Tags'] = RunService.RenderStepped:Connect(function()
+                for _, player in pairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+                        local billboard = player.Character.Head:FindFirstChild("NameTag") or Instance.new("BillboardGui")
+                        billboard.Name = "NameTag"
+                        billboard.Adornee = player.Character.Head
+                        billboard.Size = UDim2.new(0, 100, 0, 30)
+                        billboard.StudsOffset = Vector3.new(0, 2, 0)
+                        billboard.AlwaysOnTop = true
+                        local textLabel = billboard:FindFirstChild("TextLabel") or Instance.new("TextLabel")
+                        textLabel.Size = UDim2.new(1, 0, 1, 0)
+                        textLabel.BackgroundTransparency = 1
+                        textLabel.TextColor3 = Color3.new(1, 1, 1)
+                        textLabel.Text = player.Name
+                        textLabel.TextScaled = true
+                        textLabel.Parent = billboard
+                        billboard.Parent = player.Character.Head
+                    end
+                end
+            end)
+        else
+            if Connections_Manager['Name Tags'] then
+                Connections_Manager['Name Tags']:Disconnect()
+                Connections_Manager['Name Tags'] = nil
+                for _, player in pairs(Players:GetPlayers()) do
+                    if player.Character and player.Character.Head and player.Character.Head:FindFirstChild("NameTag") then
+                        player.Character.Head.NameTag:Destroy()
+                    end
+                end
             end
         end
     end
 })
 
--- World Tab
+-- World Modules
 local fps_booster_module = world_tab:create_module({
     title = "FPS Booster",
     flag = "FPS_Booster",
@@ -1603,31 +1523,43 @@ local fps_booster_module = world_tab:create_module({
     end
 })
 
-fps_booster_module:create_checkbox({
-    title = "Disable Shadows",
-    flag = "Disable_Shadows",
-    callback = function(value)
-        Lighting.GlobalShadows = not value
-    end
-})
-
-fps_booster_module:create_slider({
-    title = "Render Distance",
-    flag = "Render_Distance",
-    maximum_value = 1000,
-    minimum_value = 100,
-    value = 500,
-    round_number = true,
+fps_booster_module:create_dropdown({
+    title = "Disable Effect",
+    flag = "Disable_Effect",
+    options = {"All", "Particles", "Trails", "Beams"},
+    multi_dropdown = false,
+    maximum_options = 1,
     callback = function(value)
         for _, v in pairs(Workspace:GetDescendants()) do
-            if v:IsA("BasePart") then
-                v.LocalTransparencyModifier = (LocalPlayer:DistanceFromCharacter(v.Position) > value) and 1 or 0
+            if value == "All" then
+                if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then
+                    v.Enabled = false
+                end
+            elseif value == "Particles" and v:IsA("ParticleEmitter") then
+                v.Enabled = false
+            elseif value == "Trails" and v:IsA("Trail") then
+                v.Enabled = false
+            elseif value == "Beams" and v:IsA("Beam") then
+                v.Enabled = false
             end
         end
     end
 })
 
--- Movement Tab
+fps_booster_module:create_slider({
+    title = "Brightness",
+    flag = "Brightness",
+    maximum_value = 5,
+    minimum_value = 0,
+    value = 1,
+    round_number = false,
+    callback = function(value)
+        Brightness = value
+        Lighting.Brightness = value
+    end
+})
+
+-- Movement Modules
 local fly_module = movement_tab:create_module({
     title = "Fly",
     flag = "Fly",
@@ -1640,16 +1572,14 @@ local fly_module = movement_tab:create_module({
             bodyVelocity.MaxForce = Vector3.new(40000, 40000, 40000)
             bodyVelocity.Parent = LocalPlayer.Character.HumanoidRootPart
             Connections_Manager['Fly'] = RunService.Heartbeat:Connect(function()
-                local moveDirection = LocalPlayer.Character.Humanoid.MoveDirection * (getgenv().FlySpeed or 50)
-                bodyVelocity.Velocity = Vector3.new(moveDirection.X, UserInputService:IsKeyDown(Enum.KeyCode.Space) and (getgenv().FlySpeed or 50) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) and -(getgenv().FlySpeed or 50) or 0, moveDirection.Z)
+                local moveDirection = LocalPlayer.Character.Humanoid.MoveDirection * FlySpeed
+                bodyVelocity.Velocity = Vector3.new(moveDirection.X, UserInputService:IsKeyDown(Enum.KeyCode.Space) and FlySpeed or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) and -FlySpeed or 0, moveDirection.Z)
             end)
         else
             if Connections_Manager['Fly'] then
                 Connections_Manager['Fly']:Disconnect()
                 Connections_Manager['Fly'] = nil
-                if LocalPlayer.Character.HumanoidRootPart:FindFirstChild("BodyVelocity") then
-                    LocalPlayer.Character.HumanoidRootPart.BodyVelocity:Destroy()
-                end
+                LocalPlayer.Character.HumanoidRootPart:FindFirstChild("BodyVelocity"):Destroy()
             end
         end
     end
@@ -1658,38 +1588,34 @@ local fly_module = movement_tab:create_module({
 fly_module:create_slider({
     title = "Fly Speed",
     flag = "Fly_Speed",
-    maximum_value = 100,
+    maximum_value = 200,
     minimum_value = 10,
     value = 50,
     round_number = true,
     callback = function(value)
-        getgenv().FlySpeed = value
+        FlySpeed = value
     end
 })
 
 fly_module:create_checkbox({
-    title = "No Clip",
-    flag = "No_Clip",
+    title = "Noclip",
+    flag = "Noclip",
     callback = function(value)
         if value then
-            Connections_Manager['No Clip'] = RunService.Stepped:Connect(function()
-                if LocalPlayer.Character then
-                    for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = false
-                        end
+            Connections_Manager['Noclip'] = RunService.Stepped:Connect(function()
+                for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
                     end
                 end
             end)
         else
-            if Connections_Manager['No Clip'] then
-                Connections_Manager['No Clip']:Disconnect()
-                Connections_Manager['No Clip'] = nil
-                if LocalPlayer.Character then
-                    for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = true
-                        end
+            if Connections_Manager['Noclip'] then
+                Connections_Manager['Noclip']:Disconnect()
+                Connections_Manager['Noclip'] = nil
+                for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = true
                     end
                 end
             end
@@ -1697,7 +1623,7 @@ fly_module:create_checkbox({
     end
 })
 
--- Exploits Tab
+-- Exploits Modules
 local ball_magnet_module = exploits_tab:create_module({
     title = "Ball Magnet",
     flag = "Ball_Magnet",
@@ -1709,7 +1635,7 @@ local ball_magnet_module = exploits_tab:create_module({
                 local ball = Auto_Parry.Get_Ball()
                 if ball and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
                     local direction = (LocalPlayer.Character.HumanoidRootPart.Position - ball.Position).Unit
-                    local velocity = direction * (getgenv().MagnetStrength or 50)
+                    local velocity = direction * BallMagnetStrength
                     ball.Velocity = velocity
                 end
             end)
@@ -1725,39 +1651,36 @@ local ball_magnet_module = exploits_tab:create_module({
 ball_magnet_module:create_slider({
     title = "Magnet Strength",
     flag = "Magnet_Strength",
-    maximum_value = 100,
+    maximum_value = 200,
     minimum_value = 10,
     value = 50,
     round_number = true,
     callback = function(value)
-        getgenv().MagnetStrength = value
+        BallMagnetStrength = value
     end
 })
 
 ball_magnet_module:create_checkbox({
-    title = "Auto Magnet",
-    flag = "Auto_Magnet",
+    title = "Instant Ball Teleport",
+    flag = "Instant_Ball_Teleport",
     callback = function(value)
-        getgenv().AutoMagnet = value
         if value then
-            Connections_Manager['Auto Magnet'] = RunService.Heartbeat:Connect(function()
+            Connections_Manager['Instant Ball Teleport'] = RunService.Heartbeat:Connect(function()
                 local ball = Auto_Parry.Get_Ball()
-                if ball and ball:GetAttribute("target") == tostring(LocalPlayer) then
-                    ball_magnet_module.callback(true)
-                else
-                    ball_magnet_module.callback(false)
+                if ball and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    ball.Position = LocalPlayer.Character.HumanoidRootPart.Position + Vector3.new(0, 5, 0)
                 end
             end)
         else
-            if Connections_Manager['Auto Magnet'] then
-                Connections_Manager['Auto Magnet']:Disconnect()
-                Connections_Manager['Auto Magnet'] = nil
+            if Connections_Manager['Instant Ball Teleport'] then
+                Connections_Manager['Instant Ball Teleport']:Disconnect()
+                Connections_Manager['Instant Ball Teleport'] = nil
             end
         end
     end
 })
 
--- Utilities Tab
+-- Utilities Modules
 local spectate_module = utilities_tab:create_module({
     title = "Spectate Mode",
     flag = "Spectate_Mode",
@@ -1776,7 +1699,7 @@ local spectate_module = utilities_tab:create_module({
 spectate_module:create_dropdown({
     title = "Spectate Target",
     flag = "Spectate_Target",
-    options = {"Ball", "Closest Player", "None"},
+    options = {"Ball", "Closest Player"},
     multi_dropdown = false,
     maximum_options = 1,
     callback = function(value)
@@ -1792,269 +1715,350 @@ spectate_module:create_dropdown({
                 Workspace.CurrentCamera.CameraType = Enum.CameraType.Follow
                 Workspace.CurrentCamera.CameraSubject = closest.Humanoid
             end
-        else
-            Workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
-            Workspace.CurrentCamera.CameraSubject = LocalPlayer.Character.Humanoid
         end
     end
 })
 
-spectate_module:create_slider({
-    title = "Camera Distance",
-    flag = "Camera_Distance",
-    maximum_value = 100,
-    minimum_value = 10,
-    value = 30,
-    round_number = true,
-    callback = function(value)
-        Workspace.CurrentCamera.CameraType = Enum.CameraType.Follow
-        Workspace.CurrentCamera.FieldOfView = value
-    end
-})
-
-spectate_module:create_checkbox({
-    title = "Auto Spectate",
-    flag = "Auto_Spectate",
-    callback = function(value)
-        getgenv().AutoSpectate = value
-        if value then
-            Connections_Manager['Auto Spectate'] = RunService.Heartbeat:Connect(function()
-                local ball = Auto_Parry.Get_Ball()
-                if ball and ball:GetAttribute("target") == tostring(LocalPlayer) then
-                    Workspace.CurrentCamera.CameraType = Enum.CameraType.Follow
-                    Workspace.CurrentCamera.CameraSubject = ball
-                end
-            end)
-        else
-            if Connections_Manager['Auto Spectate'] then
-                Connections_Manager['Auto Spectate']:Disconnect()
-                Connections_Manager['Auto Spectate'] = nil
-            end
-            Workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
-            Workspace.CurrentCamera.CameraSubject = LocalPlayer.Character.Humanoid
+spectate_module:create_button({
+    title = "Teleport to Closest",
+    callback = function()
+        local closest = Auto_Parry.Closest_Player()
+        if closest and closest.PrimaryPart and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = closest.PrimaryPart.CFrame
         end
     end
 })
 
--- Environment Tab
-local lighting_module = environment_tab:create_module({
-    title = "Lighting",
-    flag = "Lighting",
-    description = "Customizes game lighting",
-    section = "left",
-    callback = function(value)
-        if value then
-            Lighting.Brightness = getgenv().Brightness or 1
-            Lighting.Ambient = Color3.fromRGB(getgenv().AmbientR or 128, getgenv().AmbientG or 128, getgenv().AmbientB or 128)
-        else
-            Lighting.Brightness = 1
-            Lighting.Ambient = Color3.fromRGB(128, 128, 128)
-        end
-    end
-})
-
-lighting_module:create_slider({
-    title = "Brightness",
-    flag = "Brightness",
-    maximum_value = 5,
-    minimum_value = 0,
-    value = 1,
-    round_number = false,
-    callback = function(value)
-        getgenv().Brightness = value
-        if lighting_module.callback then
-            Lighting.Brightness = value
-        end
-    end
-})
-
-lighting_module:create_slider({
-    title = "Ambient Red",
-    flag = "Ambient_R",
-    maximum_value = 255,
-    minimum_value = 0,
-    value = 128,
-    round_number = true,
-    callback = function(value)
-        getgenv().AmbientR = value
-        if lighting_module.callback then
-            Lighting.Ambient = Color3.fromRGB(value, getgenv().AmbientG or 128, getgenv().AmbientB or 128)
-        end
-    end
-})
-
-lighting_module:create_slider({
-    title = "Ambient Green",
-    flag = "Ambient_G",
-    maximum_value = 255,
-    minimum_value = 0,
-    value = 128,
-    round_number = true,
-    callback = function(value)
-        getgenv().AmbientG = value
-        if lighting_module.callback then
-            Lighting.Ambient = Color3.fromRGB(getgenv().AmbientR or 128, value, getgenv().AmbientB or 128)
-        end
-    end
-})
-
-lighting_module:create_slider({
-    title = "Ambient Blue",
-    flag = "Ambient_B",
-    maximum_value = 255,
-    minimum_value = 0,
-    value = 128,
-    round_number = true,
-    callback = function(value)
-        getgenv().AmbientB = value
-        if lighting_module.callback then
-            Lighting.Ambient = Color3.fromRGB(getgenv().AmbientR or 128, getgenv().AmbientG or 128, value)
-        end
-    end
-})
-
-lighting_module:create_dropdown({
-    title = "Time of Day",
-    flag = "Time_Of_Day",
-    options = {"Day", "Night", "Dawn", "Dusk"},
+spectate_module:create_dropdown({
+    title = "Teleport Destination",
+    flag = "Teleport_Destination",
+    options = {"Spawn", "Closest Player"},
     multi_dropdown = false,
     maximum_options = 1,
     callback = function(value)
-        if value == "Day" then
-            Lighting.TimeOfDay = "12:00:00"
-        elseif value == "Night" then
-            Lighting.TimeOfDay = "00:00:00"
-        elseif value == "Dawn" then
-            Lighting.TimeOfDay = "06:00:00"
-        elseif value == "Dusk" then
-            Lighting.TimeOfDay = "18:00:00"
+        if value == "Spawn" then
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(Vector3.new(0, 10, 0)) -- Adjust to actual spawn position if known
+            end
+        elseif value == "Closest Player" then
+            local closest = Auto_Parry.Closest_Player()
+            if closest and closest.PrimaryPart and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = closest.PrimaryPart.CFrame
+            end
         end
     end
 })
 
--- Cheats Tab
-local kill_aura_module = cheats_tab:create_module({
-    title = "Kill Aura",
-    flag = "Kill_Aura",
-    description = "Automatically attacks nearby enemies",
+-- Environment Modules
+local time_of_day_module = environment_tab:create_module({
+    title = "Time of Day",
+    flag = "Time_Of_Day",
+    description = "Changes the time of day",
     section = "left",
     callback = function(value)
         if value then
-            Connections_Manager['Kill Aura'] = RunService.Heartbeat:Connect(function()
-                for _, player in pairs(Players:GetPlayers()) do
-                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
-                        local distance = (LocalPlayer.Character.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude
-                        if distance <= (getgenv().KillAuraRange or 15) then
-                            -- Simulate attack (adjust based on game mechanics)
-                            Auto_Parry.Parry(Selected_Parry_Type)
+            Lighting.TimeOfDay = getgenv().TimeOfDay or "14:00:00"
+            Connections_Manager['Time Of Day'] = RunService.Heartbeat:Connect(function()
+                Lighting.TimeOfDay = getgenv().TimeOfDay
+            end)
+        else
+            Lighting.TimeOfDay = "14:00:00"
+            if Connections_Manager['Time Of Day'] then
+                Connections_Manager['Time Of Day']:Disconnect()
+                Connections_Manager['Time Of Day'] = nil
+            end
+        end
+    end
+})
+
+time_of_day_module:create_dropdown({
+    title = "Time",
+    flag = "Time_Value",
+    options = {"Morning", "Noon", "Evening", "Night"},
+    multi_dropdown = false,
+    maximum_options = 1,
+    callback = function(value)
+        local timeMap = {
+            Morning = "08:00:00",
+            Noon = "12:00:00",
+            Evening = "18:00:00",
+            Night = "00:00:00"
+        }
+        getgenv().TimeOfDay = timeMap[value]
+        if environment_tab:get_flag("Time_Of_Day") then
+            Lighting.TimeOfDay = getgenv().TimeOfDay
+        end
+    end
+})
+
+local no_fog_module = environment_tab:create_module({
+    title = "No Fog",
+    flag = "No_Fog",
+    description = "Removes fog from the game",
+    section = "right",
+    callback = function(value)
+        if value then
+            Lighting.FogEnd = FogDistance
+            Connections_Manager['No Fog'] = RunService.Heartbeat:Connect(function()
+                Lighting.FogEnd = FogDistance
+            end)
+        else
+            Lighting.FogEnd = 100000
+            if Connections_Manager['No Fog'] then
+                Connections_Manager['No Fog']:Disconnect()
+                Connections_Manager['No Fog'] = nil
+            end
+        end
+    end
+})
+
+no_fog_module:create_slider({
+    title = "Fog Distance",
+    flag = "Fog_Distance",
+    maximum_value = 5000,
+    minimum_value = 100,
+    value = 1000,
+    round_number = true,
+    callback = function(value)
+        FogDistance = value
+        if environment_tab:get_flag("No_Fog") then
+            Lighting.FogEnd = value
+        end
+    end
+})
+
+no_fog_module:create_dropdown({
+    title = "Weather Effect",
+    flag = "Weather_Effect",
+    options = {"Clear", "Rain", "Snow"},
+    multi_dropdown = false,
+    maximum_options = 1,
+    callback = function(value)
+        -- Simulated weather effects (Blade Ball may not support native weather)
+        if value == "Clear" then
+            if Connections_Manager['Weather'] then
+                Connections_Manager['Weather']:Disconnect()
+                Connections_Manager['Weather'] = nil
+            end
+        elseif value == "Rain" then
+            if Connections_Manager['Weather'] then
+                Connections_Manager['Weather']:Disconnect()
+            end
+            Connections_Manager['Weather'] = RunService.RenderStepped:Connect(function()
+                local particle = Instance.new("ParticleEmitter")
+                particle.Texture = "rbxassetid://241517432"
+                particle.Size = NumberSequence.new(0.1)
+                particle.Lifetime = NumberRange.new(1, 2)
+                particle.Rate = 100
+                particle.Speed = NumberRange.new(10, 20)
+                particle.Parent = Workspace.CurrentCamera
+                Debris:AddItem(particle, 2)
+            end)
+        elseif value == "Snow" then
+            if Connections_Manager['Weather'] then
+                Connections_Manager['Weather']:Disconnect()
+            end
+            Connections_Manager['Weather'] = RunService.RenderStepped:Connect(function()
+                local particle = Instance.new("ParticleEmitter")
+                particle.Texture = "rbxassetid://602343991"
+                particle.Size = NumberSequence.new(0.2)
+                particle.Lifetime = NumberRange.new(2, 3)
+                particle.Rate = 50
+                particle.Speed = NumberRange.new(5, 10)
+                particle.Parent = Workspace.CurrentCamera
+                Debris:AddItem(particle, 3)
+            end)
+        end
+    end
+})
+
+local ambient_module = environment_tab:create_module({
+    title = "Ambient Colors",
+    flag = "Ambient_Colors",
+    description = "Changes ambient lighting colors",
+    section = "left",
+    callback = function(value)
+        if value then
+            Lighting.Ambient = getgenv().AmbientColor or Color3.new(0.5, 0.5, 0.5)
+            Connections_Manager['Ambient Colors'] = RunService.Heartbeat:Connect(function()
+                Lighting.Ambient = getgenv().AmbientColor
+            end)
+        else
+            Lighting.Ambient = Color3.new(0.5, 0.5, 0.5)
+            if Connections_Manager['Ambient Colors'] then
+                Connections_Manager['Ambient Colors']:Disconnect()
+                Connections_Manager['Ambient Colors'] = nil
+            end
+        end
+    end
+})
+
+ambient_module:create_slider({
+    title = "Red",
+    flag = "Ambient_Red",
+    maximum_value = 1,
+    minimum_value = 0,
+    value = 0.5,
+    round_number = false,
+    callback = function(value)
+        getgenv().AmbientColor = Color3.new(value, getgenv().AmbientColor and getgenv().AmbientColor.G or 0.5, getgenv().AmbientColor and getgenv().AmbientColor.B or 0.5)
+        if environment_tab:get_flag("Ambient_Colors") then
+            Lighting.Ambient = getgenv().AmbientColor
+        end
+    end
+})
+
+ambient_module:create_slider({
+    title = "Green",
+    flag = "Ambient_Green",
+    maximum_value = 1,
+    minimum_value = 0,
+    value = 0.5,
+    round_number = false,
+    callback = function(value)
+        getgenv().AmbientColor = Color3.new(getgenv().AmbientColor and getgenv().AmbientColor.R or 0.5, value, getgenv().AmbientColor and getgenv().AmbientColor.B or 0.5)
+        if environment_tab:get_flag("Ambient_Colors") then
+            Lighting.Ambient = getgenv().AmbientColor
+        end
+    end
+})
+
+ambient_module:create_slider({
+    title = "Blue",
+    flag = "Ambient_Blue",
+    maximum_value = 1,
+    minimum_value = 0,
+    value = 0.5,
+    round_number = false,
+    callback = function(value)
+        getgenv().AmbientColor = Color3.new(getgenv().AmbientColor and getgenv().AmbientColor.R or 0.5, getgenv().AmbientColor and getgenv().AmbientColor.G or 0.5, value)
+        if environment_tab:get_flag("Ambient_Colors") then
+            Lighting.Ambient = getgenv().AmbientColor
+        end
+    end
+})
+
+-- Cheats Modules
+local god_mode_module = cheats_tab:create_module({
+    title = "God Mode",
+    flag = "God_Mode",
+    description = "Prevents health reduction",
+    section = "left",
+    callback = function(value)
+        if value then
+            Connections_Manager['God Mode'] = LocalPlayer.Character.Humanoid.HealthChanged:Connect(function(health)
+                if health < LocalPlayer.Character.Humanoid.MaxHealth then
+                    LocalPlayer.Character.Humanoid.Health = LocalPlayer.Character.Humanoid.MaxHealth
+                end
+            end)
+        else
+            if Connections_Manager['God Mode'] then
+                Connections_Manager['God Mode']:Disconnect()
+                Connections_Manager['God Mode'] = nil
+            end
+        end
+    end
+})
+
+god_mode_module:create_button({
+    title = "Kill All Enemies",
+    callback = function()
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") then
+                player.Character.Humanoid.Health = 0
+            end
+        end
+    end
+})
+
+-- Cosmetics Modules
+local korblox_legs_module = cosmetics_tab:create_module({
+    title = "Korblox Legs",
+    flag = "Korblox_Legs",
+    description = "Applies Korblox leg cosmetic",
+    section = "left",
+    callback = function(value)
+        local function applyKorblox(character)
+            local rightLeg = character:FindFirstChild("RightLeg") or character:FindFirstChild("Right Leg")
+            if not rightLeg then return end
+            for _, child in pairs(rightLeg:GetChildren()) do
+                if child:IsA("SpecialMesh") then child:Destroy() end
+            end
+            local specialMesh = Instance.new("SpecialMesh")
+            specialMesh.MeshId = "rbxassetid://101851696"
+            specialMesh.TextureId = "rbxassetid://115727863"
+            specialMesh.Scale = Vector3.new(1, 1, 1)
+            specialMesh.Parent = rightLeg
+        end
+        local function saveRightLegProperties(char)
+            if char then
+                local rightLeg = char:FindFirstChild("RightLeg") or char:FindFirstChild("Right Leg")
+                if rightLeg then
+                    local originalMesh = rightLeg:FindFirstChildOfClass("SpecialMesh")
+                    if originalMesh then
+                        _G.PlayerCosmeticsCleanup.originalMeshId = originalMesh.MeshId
+                        _G.PlayerCosmeticsCleanup.originalTextureId = originalMesh.TextureId
+                        _G.PlayerCosmeticsCleanup.originalScale = originalMesh.Scale
+                    else
+                        _G.PlayerCosmeticsCleanup.hadNoMesh = true
+                    end
+                    _G.PlayerCosmeticsCleanup.rightLegChildren = {}
+                    for _, child in pairs(rightLeg:GetChildren()) do
+                        if child:IsA("SpecialMesh") then
+                            table.insert(_G.PlayerCosmeticsCleanup.rightLegChildren, {
+                                ClassName = child.ClassName,
+                                Properties = {
+                                    MeshId = child.MeshId,
+                                    TextureId = child.TextureId,
+                                    Scale = child.Scale
+                                }
+                            })
                         end
                     end
                 end
+            end
+        end
+        local function restoreRightLeg(char)
+            if char then
+                local rightLeg = char:FindFirstChild("RightLeg") or char:FindFirstChild("Right Leg")
+                if rightLeg and _G.PlayerCosmeticsCleanup.rightLegChildren then
+                    for _, child in pairs(rightLeg:GetChildren()) do
+                        if child:IsA("SpecialMesh") then child:Destroy() end
+                    end
+                    if _G.PlayerCosmeticsCleanup.hadNoMesh then return end
+                    for _, childData in ipairs(_G.PlayerCosmeticsCleanup.rightLegChildren) do
+                        if childData.ClassName == "SpecialMesh" then
+                            local newMesh = Instance.new("SpecialMesh")
+                            newMesh.MeshId = childData.Properties.MeshId
+                            newMesh.TextureId = childData.Properties.TextureId
+                            newMesh.Scale = childData.Properties.Scale
+                            newMesh.Parent = rightLeg
+                        end
+                    end
+                end
+            end
+        end
+        if value then
+            CosmeticsActive = true
+            if LocalPlayer.Character then
+                saveRightLegProperties(LocalPlayer.Character)
+                applyKorblox(LocalPlayer.Character)
+            end
+            _G.PlayerCosmeticsCleanup = _G.PlayerCosmeticsCleanup or {}
+            _G.PlayerCosmeticsCleanup.characterAddedConn = LocalPlayer.CharacterAdded:Connect(function(char)
+                saveRightLegProperties(char)
+                applyKorblox(char)
             end)
         else
-            if Connections_Manager['Kill Aura'] then
-                Connections_Manager['Kill Aura']:Disconnect()
-                Connections_Manager['Kill Aura'] = nil
+            CosmeticsActive = false
+            if _G.PlayerCosmeticsCleanup and _G.PlayerCosmeticsCleanup.characterAddedConn then
+                _G.PlayerCosmeticsCleanup.characterAddedConn:Disconnect()
+                _G.PlayerCosmeticsCleanup.characterAddedConn = nil
             end
-        end
-    end
-})
-
-kill_aura_module:create_slider({
-    title = "Range",
-    flag = "Kill_Aura_Range",
-    maximum_value = 50,
-    minimum_value = 5,
-    value = 15,
-    round_number = true,
-    callback = function(value)
-        getgenv().KillAuraRange = value
-    end
-})
-
-kill_aura_module:create_dropdown({
-    title = "Attack Type",
-    flag = "Attack_Type",
-    options = {"Parry", "Custom"},
-    multi_dropdown = false,
-    maximum_options = 1,
-    callback = function(value)
-        getgenv().KillAuraAttackType = value
-    end
-})
-
-kill_aura_module:create_checkbox({
-    title = "Auto Attack",
-    flag = "Auto_Attack",
-    callback = function(value)
-        getgenv().AutoAttack = value
-    end
-})
-
--- Cosmetics Tab
-local korblox_module = cosmetics_tab:create_module({
-    title = "Korblox Legs",
-    flag = "Korblox_Legs",
-    description = "Applies Korblox legs cosmetic",
-    section = "left",
-    callback = function(value)
-        if value then
-            local character = LocalPlayer.Character
-            if character then
-                local humanoid = character:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    local description = humanoid:GetAppliedDescription()
-                    description.RightLeg = 134082579 -- Korblox Right Leg
-                    description.LeftLeg = 134082579 -- Korblox Left Leg
-                    humanoid:ApplyDescription(description)
-                end
+            if LocalPlayer.Character then
+                restoreRightLeg(LocalPlayer.Character)
             end
-        else
-            local character = LocalPlayer.Character
-            if character then
-                local humanoid = character:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    local description = Players:GetHumanoidDescriptionFromUserId(LocalPlayer.UserId)
-                    humanoid:ApplyDescription(description)
-                end
-            end
-        end
-    end
-})
-
-korblox_module:create_checkbox({
-    title = "Auto Reapply",
-    flag = "Auto_Reapply_Korblox",
-    callback = function(value)
-        if value then
-            Connections_Manager['Auto Reapply Korblox'] = LocalPlayer.CharacterAdded:Connect(function(character)
-                if korblox_module.callback then
-                    local humanoid = character:WaitForChild("Humanoid")
-                    local description = humanoid:GetAppliedDescription()
-                    description.RightLeg = 134082579
-                    description.LeftLeg = 134082579
-                    humanoid:ApplyDescription(description)
-                end
-            end)
-        else
-            if Connections_Manager['Auto Reapply Korblox'] then
-                Connections_Manager['Auto Reapply Korblox']:Disconnect()
-                Connections_Manager['Auto Reapply Korblox'] = nil
-            end
-        end
-    end
-})
-
-korblox_module:create_button({
-    title = "Reset Appearance",
-    callback = function()
-        local character = LocalPlayer.Character
-        if character then
-            local humanoid = character:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                local description = Players:GetHumanoidDescriptionFromUserId(LocalPlayer.UserId)
-                humanoid:ApplyDescription(description)
-            end
+            _G.PlayerCosmeticsCleanup = {}
         end
     end
 })
@@ -2062,21 +2066,21 @@ korblox_module:create_button({
 local skin_changer_module = cosmetics_tab:create_module({
     title = "Skin Changer",
     flag = "Skin_Changer",
-    description = "Change the appearance of your sword",
-    section = "left",
+    description = "Changes the sword skin",
+    section = "right",
     callback = function(value)
         getgenv().config.enabled = value
         if value then
             getgenv().updateSword()
         else
-            -- Revert to default sword
-            local currentSword = LocalPlayer:GetAttribute("CurrentlyEquippedSword")
+            local p = game:GetService("Players").LocalPlayer
+            local currentSword = p:GetAttribute("CurrentlyEquippedSword")
             if currentSword then
                 getgenv().config.model = currentSword
                 getgenv().config.anim = currentSword
                 getgenv().config.fx = currentSword
                 getgenv().config.slash = getSlash(currentSword)
-                setSword()
+                getgenv().updateSword()
             end
         end
     end
@@ -2084,21 +2088,18 @@ local skin_changer_module = cosmetics_tab:create_module({
 
 skin_changer_module:create_textbox({
     title = "Sword Name",
-    placeholder = "Enter sword name (e.g., Dual Darkblade)",
+    placeholder = "Enter sword name...",
     flag = "Sword_Name",
     callback = function(text)
-        -- Update config with the new sword name
         getgenv().config.model = text
         getgenv().config.anim = text
         getgenv().config.fx = text
-        getgenv().config.slash = getSlash(text)
     end
 })
 
 skin_changer_module:create_button({
     title = "Load Sword",
     callback = function()
-        -- Enable skin changer and apply the sword
         getgenv().config.enabled = true
         getgenv().updateSword()
     end
@@ -2107,184 +2108,121 @@ skin_changer_module:create_button({
 skin_changer_module:create_button({
     title = "Refresh Sword",
     callback = function()
-        -- Disable skin changer and revert to equipped sword
         getgenv().config.enabled = false
-        local currentSword = LocalPlayer:GetAttribute("CurrentlyEquippedSword")
+        local p = game:GetService("Players").LocalPlayer
+        local currentSword = p:GetAttribute("CurrentlyEquippedSword")
         if currentSword then
             getgenv().config.model = currentSword
             getgenv().config.anim = currentSword
             getgenv().config.fx = currentSword
             getgenv().config.slash = getSlash(currentSword)
-            setSword()
+            getgenv().updateSword()
         end
     end
 })
 
-skin_changer_module:create_dropdown({
-    title = "Sword Preview",
-    flag = "Sword_Preview",
-    options = {"None", "Dual Darkblade", "Infernal Saber", "Flowing Katana"},
-    multi_dropdown = false,
-    maximum_options = 1,
-    callback = function(value)
-        if value ~= "None" then
-            getgenv().config.model = value
-            getgenv().config.anim = value
-            getgenv().config.fx = value
-            getgenv().config.slash = getSlash(value)
-        end
-    end
-})
-
-skin_changer_module:create_slider({
-    title = "Effect Intensity",
-    flag = "Effect_Intensity",
-    maximum_value = 100,
-    minimum_value = 0,
-    value = 50,
-    round_number = true,
-    callback = function(value)
-        -- Placeholder for effect intensity adjustment (game-specific)
-        getgenv().EffectIntensity = value / 100
-    end
-})
-
-local emote_module = cosmetics_tab:create_module({
-    title = "Emote Changer",
-    flag = "Emote_Changer",
-    description = "Play custom emotes",
-    section = "right",
-    callback = function(value)
-        if value then
-            -- Enable emote playing
-        else
-            if Animation.track then
-                Animation.track:Stop()
-                Animation.track = nil
-                Animation.current = nil
-            end
-        end
-    end
-})
-
-emote_module:create_dropdown({
-    title = "Emote Selection",
-    flag = "Emote_Selection",
-    options = Emotes_Data,
-    multi_dropdown = false,
-    maximum_options = 1,
-    callback = function(value)
-        Auto_Parry.Play_Animation(value)
-    end
-})
-
-emote_module:create_button({
-    title = "Stop Emote",
-    callback = function()
-        if Animation.track then
-            Animation.track:Stop()
-            Animation.track = nil
-            Animation.current = nil
-        end
-    end
-})
-
--- Debug Tab
-local debug_module = debug_tab:create_module({
-    title = "Debug Info",
-    flag = "Debug_Info",
-    description = "Displays debug information",
+-- Debug Modules
+local ping_display_module = debug_tab:create_module({
+    title = "Ping Display",
+    flag = "Ping_Display",
+    description = "Shows current ping",
     section = "left",
     callback = function(value)
         if value then
-            Connections_Manager['Debug Info'] = RunService.RenderStepped:Connect(function()
-                local ball = Auto_Parry.Get_Ball()
-                local debugText = string.format(
-                    "Ping: %.2f ms\nParries: %d\nBall Distance: %.2f\nBall Target: %s\nCurved: %s",
-                    Stats.Network.ServerStatsItem['Data Ping']:GetValue(),
-                    Parries,
-                    ball and (LocalPlayer.Character.PrimaryPart.Position - ball.Position).Magnitude or 0,
-                    ball and ball:GetAttribute("target") or "None",
-                    Auto_Parry.Is_Curved() and "Yes" or "No"
-                )
-                if not CoreGui:FindFirstChild("DebugUI") then
-                    local gui = Instance.new("ScreenGui")
-                    gui.Name = "DebugUI"
-                    gui.Parent = CoreGui
-                    local label = Instance.new("TextLabel")
-                    label.Size = UDim2.new(0, 200, 0, 100)
-                    label.Position = UDim2.new(0, 10, 0, 10)
-                    label.BackgroundTransparency = 0.5
-                    label.BackgroundColor3 = Color3.new(0, 0, 0)
-                    label.TextColor3 = Color3.new(1, 1, 1)
-                    label.TextScaled = true
-                    label.Text = debugText
-                    label.Parent = gui
-                else
-                    CoreGui.DebugUI.TextLabel.Text = debugText
-                end
-            end)
+            if not CoreGui:FindFirstChild("PingDisplayUI") then
+                local gui = Instance.new("ScreenGui")
+                gui.Name = "PingDisplayUI"
+                gui.ResetOnSpawn = false
+                gui.Parent = CoreGui
+
+                local frame = Instance.new("Frame")
+                frame.Size = UDim2.new(0, 100, 0, 30)
+                frame.Position = UDim2.new(0, 10, 0, 10)
+                frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+                frame.BackgroundTransparency = 0.5
+                frame.Parent = gui
+
+                local textLabel = Instance.new("TextLabel")
+                textLabel.Size = UDim2.new(1, 0, 1, 0)
+                textLabel.BackgroundTransparency = 1
+                textLabel.TextColor3 = Color3.new(1, 1, 1)
+                textLabel.Text = "Ping: 0ms"
+                textLabel.TextScaled = true
+                textLabel.Parent = frame
+
+                Connections_Manager['Ping Display'] = RunService.Heartbeat:Connect(function()
+                    local ping = Stats.Network.ServerStatsItem['Data Ping']:GetValue()
+                    textLabel.Text = string.format("Ping: %dms", ping)
+                end)
+            end
         else
-            if Connections_Manager['Debug Info'] then
-                Connections_Manager['Debug Info']:Disconnect()
-                Connections_Manager['Debug Info'] = nil
-                if CoreGui:FindFirstChild("DebugUI") then
-                    CoreGui.DebugUI:Destroy()
-                end
+            if CoreGui:FindFirstChild("PingDisplayUI") then
+                CoreGui.PingDisplayUI:Destroy()
+            end
+            if Connections_Manager['Ping Display'] then
+                Connections_Manager['Ping Display']:Disconnect()
+                Connections_Manager['Ping Display'] = nil
             end
         end
     end
 })
 
-debug_module:create_button({
-    title = "Print Debug Info",
+ping_display_module:create_button({
+    title = "Print Ball Properties",
     callback = function()
         local ball = Auto_Parry.Get_Ball()
-        print(string.format(
-            "Debug Info:\nPing: %.2f ms\nParries: %d\nBall Distance: %.2f\nBall Target: %s\nCurved: %s",
-            Stats.Network.ServerStatsItem['Data Ping']:GetValue(),
-            Parries,
-            ball and (LocalPlayer.Character.PrimaryPart.Position - ball.Position).Magnitude or 0,
-            ball and ball:GetAttribute("target") or "None",
-            Auto_Parry.Is_Curved() and "Yes" or "No"
-        ))
+        if ball then
+            print("Ball Position:", ball.Position)
+            print("Ball Velocity:", ball.Velocity)
+            print("Ball Target:", ball:GetAttribute("target") or "None")
+        else
+            print("No ball found")
+        end
     end
 })
 
-debug_module:create_checkbox({
-    title = "Log Parries",
-    flag = "Log_Parries",
+ping_display_module:create_checkbox({
+    title = "FPS Counter",
+    flag = "FPS_Counter",
     callback = function(value)
-        getgenv().LogParries = value
         if value then
-            Connections_Manager['Log Parries'] = RunService.Heartbeat:Connect(function()
-                if Parried then
-                    print("Parry executed at: " .. os.clock())
-                end
-            end)
+            if not CoreGui:FindFirstChild("FPSCounterUI") then
+                local gui = Instance.new("ScreenGui")
+                gui.Name = "FPSCounterUI"
+                gui.ResetOnSpawn = false
+                gui.Parent = CoreGui
+
+                local frame = Instance.new("Frame")
+                frame.Size = UDim2.new(0, 100, 0, 30)
+                frame.Position = UDim2.new(0, 10, 0, 50)
+                frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+                frame.BackgroundTransparency = 0.5
+                frame.Parent = gui
+
+                local textLabel = Instance.new("TextLabel")
+                textLabel.Size = UDim2.new(1, 0, 1, 0)
+                textLabel.BackgroundTransparency = 1
+                textLabel.TextColor3 = Color3.new(1, 1, 1)
+                textLabel.Text = "FPS: 0"
+                textLabel.TextScaled = true
+                textLabel.Parent = frame
+
+                Connections_Manager['FPS Counter'] = RunService.Heartbeat:Connect(function()
+                    local fps = 1 / RunService.Heartbeat:Wait()
+                    textLabel.Text = string.format("FPS: %d", math.floor(fps))
+                end)
+            end
         else
-            if Connections_Manager['Log Parries'] then
-                Connections_Manager['Log Parries']:Disconnect()
-                Connections_Manager['Log Parries'] = nil
+            if CoreGui:FindFirstChild("FPSCounterUI") then
+                CoreGui.FPSCounterUI:Destroy()
+            end
+            if Connections_Manager['FPS Counter'] then
+                Connections_Manager['FPS Counter']:Disconnect()
+                Connections_Manager['FPS Counter'] = nil
             end
         end
     end
 })
 
--- Cleanup on script end
-game:BindToClose(function()
-    for _, connection in pairs(Connections_Manager) do
-        if connection then
-            connection:Disconnect()
-        end
-    end
-    if CoreGui:FindFirstChild("ManualSpamUI") then
-        CoreGui.ManualSpamUI:Destroy()
-    end
-    if CoreGui:FindFirstChild("DebugUI") then
-        CoreGui.DebugUI:Destroy()
-    end
-end)
-
--- Initialize
-print("Script initialized successfully!")
+-- Initialize UI
+main:initialize()
